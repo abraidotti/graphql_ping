@@ -1,9 +1,10 @@
-"use strict"
+'use strict'
 
 global.WebSocket = require('ws')
 require('es6-promise').polyfill()
 require('isomorphic-fetch')
 
+const querystring = require('querystring')
 const https = require('https')
 const schedule = require('node-schedule')
 require('dotenv').config()
@@ -30,50 +31,45 @@ AWS.config.update({
 })
 const credentials = AWS.config.credentials
 
-// Import gql helper and craft a GraphQL query
-const gql = require('graphql-tag');
-const query = gql(`
-query listRemoteMachineModels {
-    listRemoteMachineModels {
-      items {
-        id
-        dateTime
-      }
-    }
-}`)
-
 // Set up Apollo client
 const client = new AWSAppSyncClient({
     url: url,
     region: region,
     auth: {
         type: type,
-        credentials: credentials,
+        credentials: credentials
     }
 })
 
 client.hydrated().then((client) => {
-    schedule.scheduleJob('*/5 * * * *', () => {
-        https.get(url + `/ping?query={id{${process.env.DB_MACHINE_ID}}}`, (resp) => {
-            let data = ''
+    const postData = JSON.stringify({ 'query': `query aTest($arg1: Int!) { test(id: ${process.env.DB_MACHINE_ID}) }` })
 
-            resp.on('data', (chunk) => {
-                data += chunk
+    const options = {
+        hostname: url,
+        port: 443,
+        path: '/ping',
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': postData.length
+        }
+    }
+
+    schedule.scheduleJob('*/1 * * * *', () => {
+        const req = https.request(options, (res) => {
+            console.log('statusCode:', res.statusCode)
+            console.log('headers:', res.headers)
+
+            res.on('data', (data) => {
+                process.stdout.write(data)
             })
-
-            resp.on('end', () => {
-                console.log(JSON.parse(data))
-            })
-
-        }).on('error', (err) => {
-            console.log('Error: ' + err.message)
         })
 
-        //Now run a query
-        client.query({ query: query })
-            .then((data) => {
-                console.log('results of query: ', data)
-            })
-            .catch(console.error)
+        req.on('error', (error) => {
+            console.error(error)
+        })
+
+        req.write(postData)
+        req.end()
     })
 })
